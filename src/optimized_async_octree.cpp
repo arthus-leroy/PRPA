@@ -3,19 +3,19 @@
 
 # include "optimized_async_octree.hpp"
 
-template <typename T>
-node<T>::node()
+template <typename T, unsigned N>
+node<T, N>::node()
     : free(-1ULL)
 {}
 
-template <typename T>
-AsyncOptimizedQuadTree<T>::AsyncOptimizedQuadTree(const std::initializer_list<T>& init)
+template <typename T, unsigned N>
+AsyncOptimizedQuadTree<T, N>::AsyncOptimizedQuadTree(const std::initializer_list<T>& init)
 {
     this->init(init);
 }
 
-template <typename T>
-void AsyncOptimizedQuadTree<T>::init(const std::initializer_list<T>& init)
+template <typename T, unsigned N>
+void AsyncOptimizedQuadTree<T, N>::init(const std::initializer_list<T>& init)
 {
     for (const auto&  elem : init)
         insert(elem);
@@ -41,9 +41,9 @@ namespace
     }
 }
 
-template <typename T>
+template <typename T, unsigned N>
 std::future<result_t>
-AsyncOptimizedQuadTree<T>::search(const T e) const noexcept
+AsyncOptimizedQuadTree<T, N>::search(const T e) const noexcept
 {
     // previous node's lock
     std::mutex prev;
@@ -52,7 +52,7 @@ AsyncOptimizedQuadTree<T>::search(const T e) const noexcept
     // nearest element found
     T nearest;
     // queue of nodes for breadth-first search
-    std::queue<struct node<T>*> nodes;
+    std::queue<struct node<T, N>*> nodes;
 
     // distance between the nearest element found and the target
     unsigned dist = -1U;
@@ -101,9 +101,9 @@ AsyncOptimizedQuadTree<T>::search(const T e) const noexcept
     return ret.get_future();
 }
 
-template <typename T>
+template <typename T, unsigned N>
 std::future<void>
-AsyncOptimizedQuadTree<T>::insert(const T e) noexcept
+AsyncOptimizedQuadTree<T, N>::insert(const T e) noexcept
 {
     // previous node's lock
     std::mutex prev;
@@ -149,7 +149,7 @@ AsyncOptimizedQuadTree<T>::insert(const T e) noexcept
         auto pt = n.nodes[dir];
         if (pt != nullptr)
         {
-            pt = std::make_unique<struct node<T>>();
+            pt = std::make_unique<struct node<T, N>>();
             n.nodes[dir] = pt;
         }
 
@@ -159,9 +159,9 @@ AsyncOptimizedQuadTree<T>::insert(const T e) noexcept
     return ret.get_future();
 }
 
-template <typename T>
+template <typename T, unsigned N>
 std::future<void>
-AsyncOptimizedQuadTree<T>::erase(const T e) noexcept
+AsyncOptimizedQuadTree<T, N>::erase(const T e) noexcept
 {
     // previous node's lock
     std::mutex prev;

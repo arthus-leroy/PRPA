@@ -4,15 +4,13 @@
 
 # include "IAsyncQuadTree.hpp"
 
-# define N 1
-
 /** TODO:
  *  ask how max number of elements (for possiblity of array based implem)
  *  ask max size of cube (for size of sub-cubes, since a sub-cube)
  *  verify if fairness is ensured
  */
 
-template <typename T>
+template <typename T, unsigned N>
 struct node
 {
     node();
@@ -30,7 +28,7 @@ struct node
     struct point center;
 };
 
-template <typename T>
+template <typename T, unsigned N>
 class AsyncOptimizedQuadTree : IAsyncQuadTree
 {
 public:
@@ -43,5 +41,5 @@ public:
     std::future<void> erase(const T elem) noexcept final;
 
 private:
-    struct node<T> root_;
+    struct node<T, N> root_;
 };

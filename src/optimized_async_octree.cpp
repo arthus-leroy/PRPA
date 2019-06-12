@@ -181,14 +181,14 @@ AsyncOptimizedQuadTree<T, N>::erase(const T e) noexcept
 
         int i;
         auto used = (~n.free).to_ullong();
-        for (int pos = -1; i < N; used >>= i)
+        for (int pos = -1; i used; used >>= i)
         {
             // ffsll return least significant bit, N - i is most significant
             i = ffsll(used);
             pos += i;
             if (e == n.elems[N - pos])
             {
-                n.free[pos + 1] = true;
+                n.free[pos - 1] = true;
 
                 // value deleted
                 n.m.unlock();

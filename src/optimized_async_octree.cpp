@@ -133,9 +133,10 @@ AsyncOptimizedQuadTree<T, N>::insert(const T e) noexcept
         // free slot(s)
         if (n.free.any())
         {
+            // ffsll return least significant bit, N - i is most significant
             const int i = ffsll(n.free.to_ullong());
-            n.elems[i] = e;
-            n.free[i] = false;
+            n.elems[N - i] = e;
+            n.free[i - 1] = false;
 
             // value inserted
             n.m.unlock();
@@ -182,10 +183,12 @@ AsyncOptimizedQuadTree<T, N>::erase(const T e) noexcept
         auto used = (~n.free).to_ullong();
         for (int pos = -1; i < N; used >>= i)
         {
+            // ffsll return least significant bit, N - i is most significant
             i = ffsll(used);
-            if (e == n.elems[i])
+            pos += i;
+            if (e == n.elems[N - pos])
             {
-                n.free[i] = true;
+                n.free[pos + 1] = true;
 
                 // value deleted
                 n.m.unlock();

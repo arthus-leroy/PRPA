@@ -39,6 +39,8 @@ add_library(quadtree
   src/naive_quadtree.cpp
   src/naive_async_quadtree.hpp
   src/naive_async_quadtree.cpp
+  src/optimized_octree.hpp
+  src/optimized_octree.cpp
   src/optimized_async_octree.hpp
   src/optimized_async_octree.cpp
   src/tools.hpp

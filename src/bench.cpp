@@ -76,13 +76,26 @@ SYNC(20)
                                                                               \
     BENCHMARK_REGISTER_F(BMScenario, Async_OcTree_Opti_V1_ ## N)->Unit(benchmark::kMillisecond);
 
-//ASYNC(1)
-/*
+ASYNC(1)
 ASYNC(2)
 ASYNC(3)
 ASYNC(4)
 ASYNC(5)
-*/
+ASYNC(6)
+ASYNC(7)
+ASYNC(8)
+ASYNC(9)
+ASYNC(10)
+ASYNC(11)
+ASYNC(12)
+ASYNC(13)
+ASYNC(14)
+ASYNC(15)
+ASYNC(16)
+ASYNC(17)
+ASYNC(18)
+ASYNC(19)
+ASYNC(20)
 
 BENCHMARK_DEFINE_F(BMScenario, Naive_NoAsync)(benchmark::State& st)
 {

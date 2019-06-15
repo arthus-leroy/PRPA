@@ -23,9 +23,8 @@ find_package(GTest)
 
 
 
-
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_FLAGS "-W -Wall")
+set(CMAKE_CXX_FLAGS "-g3 -W -Wall")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=thread")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
 
@@ -40,9 +39,7 @@ add_library(quadtree
   src/naive_async_quadtree.hpp
   src/naive_async_quadtree.cpp
   src/optimized_octree.hpp
-  src/optimized_octree.cpp
   src/optimized_async_octree.hpp
-  src/optimized_async_octree.cpp
   src/tools.hpp
   src/tools.cpp
   )

@@ -8,15 +8,40 @@
 # include "optimized_octree.hpp"
 
 template <typename T, unsigned N>
-class AsyncOptimizedOcTree : IAsyncQuadTree
+class AsyncOptimizedOcTree : public IAsyncQuadTree
 {
 public:
-    AsyncOptimizedOcTree(const std::initializer_list<T>& init = {});
+    AsyncOptimizedOcTree() = default;
+    AsyncOptimizedOcTree(const std::initializer_list<T>& init)
+    {
+        this->init(init);
+    }
 
-    void init(const std::initializer_list<T>& init);
-    std::future<result_t> search(const T elem) const noexcept final;
-    std::future<void> insert(const T elem) noexcept final;
-    std::future<void> erase(const T elem) noexcept final;
+    inline void init(const std::vector<T>& init) noexcept
+    {
+        octree_.init(init);
+    }
+
+    inline std::future<result_t> search(const T e) const noexcept final
+    {
+        std::promise<result_t> promise;
+        promise.set_value(octree_.search(e));
+        return promise.get_future();
+    }
+
+    inline std::future<void> insert(const T e) noexcept final
+    {
+        std::promise<void> promise;
+        octree_.insert(e);
+        return promise.get_future();
+    }
+
+    inline std::future<void> erase(const T e) noexcept final
+    {
+        std::promise<void> promise;
+        octree_.erase(e);
+        return promise.get_future();
+    }
 
 private:
     OptimizedOcTree<T, N> octree_;

@@ -1,8 +1,8 @@
 # pragma once
 
-# include <queue>
 # include <cassert>
 # include <algorithm>
+# include <utility>
 
 template <typename T, unsigned size>
 class WeightedQueue
@@ -38,14 +38,26 @@ public:
     }
 
     // works as long as function don't return -infinite
-    inline bool empty()
+    inline bool empty() const
     {
         return weight_[0] == -1ULL;
     }
 
-    inline std::array<T, size> get()
+    inline std::array<T, size> get() const
     {
         return array_;
+    }
+
+    /// Get a pair (value, weight) of the front element
+    inline std::pair<T, std::size_t> front() const
+    {
+        return std::make_pair(array_[0], weight_[0]);
+    }
+
+    /// Get a pair (value, weight) of the back element
+    inline std::pair<T, std::size_t> back() const
+    {
+        return std::make_pair(array_[size - 1], weight_[size - 1]);
     }
 
 private:

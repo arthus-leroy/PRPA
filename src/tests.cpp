@@ -4,12 +4,56 @@
 #include "tools.hpp"
 #include "naive_quadtree.hpp"
 #include "naive_async_quadtree.hpp"
+# include "optimized_octree.hpp"
+# include "optimized_async_octree.hpp"
 
 using namespace std::string_literals;
 
 // TODO
 // Adapt/Create new tests tests with your new structures
 // naive_quadtree/async_naive_quadtree can be used as references
+
+# define SYNC(N)                                                              \
+    TEST(Sync_OcTree_ ## N, SimpleScenario)                                   \
+    {                                                                         \
+        std::size_t n = 10;                                                   \
+        std::size_t nqueries = 20;                                            \
+                                                                              \
+        Scenario scn(n, nqueries);                                            \
+                                                                              \
+        OptimizedOcTree<point, N> dic;                                        \
+        scn.prepare(dic);                                                     \
+        scn.execute_verbose(dic);                                             \
+    }
+
+SYNC(1)
+SYNC(2)
+SYNC(3)
+SYNC(4)
+SYNC(5)
+
+# define ASYNC(N)                                                             \
+    TEST(Async_OcTree_ ## N, AsyncConsistency)                                \
+    {                                                                         \
+        std::size_t n = 10000; /* 100000 */                                   \
+        std::size_t nqueries = 64; /* 512 */                                  \
+        Scenario scn(n, nqueries);                                            \
+                                                                              \
+        OptimizedOcTree<point, N> dic;                                        \
+        AsyncOptimizedOcTree<point, N> async_dic;                             \
+        scn.prepare(dic);                                                     \
+        scn.prepare(async_dic);                                               \
+        auto r1 = scn.execute(async_dic);                                     \
+        auto r2 = scn.execute(dic);                                           \
+        ASSERT_EQ(r1, r2);                                                    \
+    }
+
+// FIXME: tests for async fail, fix it
+ASYNC(1)
+ASYNC(2)
+ASYNC(3)
+ASYNC(4)
+ASYNC(5)
 
 long l2norm2(point p)
 {

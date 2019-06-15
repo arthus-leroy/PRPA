@@ -5,6 +5,7 @@
 # include <memory>
 # include <cassert>
 # include <strings.h>
+# include <queue>
 
 # include "IAsyncQuadTree.hpp"
 # include "weighted_queue.hpp"
@@ -95,7 +96,7 @@ public:
     result_t search(const T e) const noexcept final
     {
         /// functor to sort the weighted queue
-        static const auto f = [&](T p) { return distance(p, e); };
+        static const auto f = [&](const T& p) { return distance(p, e); };
 
         // placeholder to avoid undefined behaviors
         std::mutex tmp;

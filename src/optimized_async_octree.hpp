@@ -33,6 +33,7 @@ public:
     {
         std::promise<void> promise;
         octree_.insert(e);
+        promise.set_value();
         return promise.get_future();
     }
 
@@ -40,6 +41,7 @@ public:
     {
         std::promise<void> promise;
         octree_.erase(e);
+        promise.set_value();
         return promise.get_future();
     }
 

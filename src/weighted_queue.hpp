@@ -4,10 +4,18 @@
 # include <algorithm>
 # include <utility>
 
+
+
 template <typename T, unsigned size>
 class WeightedQueue
 {
 public:
+    struct elem
+    {
+        T value;
+        std::size_t weight;
+    };
+
     WeightedQueue()
     {
         assert(size > 0);
@@ -49,15 +57,15 @@ public:
     }
 
     /// Get a pair (value, weight) of the front element
-    inline std::pair<T, std::size_t> front() const
+    inline struct elem front() const
     {
-        return std::make_pair(array_[0], weight_[0]);
+        return { array_[0], weight_[0] };
     }
 
     /// Get a pair (value, weight) of the back element
-    inline std::pair<T, std::size_t> back() const
+    inline struct elem back() const
     {
-        return std::make_pair(array_[size - 1], weight_[size - 1]);
+        return { array_[size - 1], weight_[size - 1] };
     }
 
 private:

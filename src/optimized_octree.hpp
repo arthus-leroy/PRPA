@@ -11,13 +11,10 @@
 # include "weighted_queue.hpp"
 
 /** TODO:
- *  ask how max number of elements (for possiblity of array based implem)
+ *  ask max number of elements (for possiblity of array based implem)
  *  verify if fairness is ensured (priority queue seems better option)
  *  use rw locks for readers (performance ++)
  *      -> queuing_rw_mutex of tbb/queuing_rw_mutex.h
- *  unlock after exception (/!\ important to avoid deadlock /!\)
- *      -> scoped_lock ?
- *      -> all lock() and unlock() must disappear
  */
 
 namespace
@@ -73,6 +70,68 @@ namespace
         };
     }
 }
+
+// The class does not support concurrency, so should be used with care
+// There *seems* to be no problem *for the moment*
+class Lock
+{
+public:
+    Lock()
+        : mutex_(nullptr)
+    {}
+
+    Lock(std::mutex& m)
+        : mutex_(&m)
+    {
+        m.lock();
+    }
+
+    Lock(std::mutex* m)
+        : mutex_(m)
+    {
+        m->lock();
+    }
+
+    ~Lock()
+    {
+        if (mutex_ != nullptr)
+            mutex_->unlock();
+    }
+
+    // move mutex (would be great to do it atomic)
+    // could cause double unlock if exception raises between the 2 assignations
+    Lock& operator=(Lock& m)
+    {
+        mutex_ = m.mutex_;
+        m.mutex_ = nullptr;
+
+        return *this;
+    }
+
+    // assign mutex
+    Lock& operator=(std::mutex& m)
+    {
+        mutex_ = &m;
+        return *this;
+    }
+
+    Lock* operator=(std::mutex* m)
+    {
+        mutex_ = m;
+        return this;
+    }
+
+    void release()
+    {
+        assert(mutex_ != nullptr);
+
+        mutex_->unlock();
+        mutex_ = nullptr;
+    }
+
+private:
+    std::mutex* mutex_;
+};
 
 /**
  *  0: back  left  down
@@ -137,11 +196,9 @@ public:
         /// functor to sort the weighted queue
         static const auto f = [&](const T& p) { return distance(p, e); };
 
-        /// previous node's lock
-        // TODO-LOCK: std::scoped_lock prev;
         std::mutex tmp;
-        tmp.lock();
-        std::mutex* prev = &tmp;
+        /// previous node's lock
+        Lock prev(tmp);
         /// nearest elements found
         WeightedQueue<T, K> nearest;
         /// queue of nodes for breadth-first search
@@ -160,21 +217,18 @@ public:
             nodes.pop();
 
             // lock current node
-            // TODO-LOCK: std::scoped_lock cur(*n.m.get());
-            n.m.get()->lock();
+            Lock cur(n.m.get());
 
-            // release previous node
-            // TODO-LOCK: find a way to release the mutex (smart ptr ?)
-            prev->unlock();
+            // release previous node (warning assert on first try)
+            prev.release();
 
             for (const auto elem : n.elems)
                 nearest.push(elem, f);
 
             depth++;
 
-            // find how to transfer a mutex from a scoped_lock to another
-            // TODO-LOCK: prev = cur;
-            prev = n.m.get();
+            prev = cur;
+
             for (const auto node : n.nodes)
                 // node exists and isn't too far away
                 if (node.get() != nullptr
@@ -183,17 +237,14 @@ public:
                     nodes.push(node.get());
         }
 
-        prev->unlock();
         return nearest.get();
     }
 
     void insert(const T e) noexcept final
     {
-        /// previous node's lock
-        // std::scoped_lock prev;
         std::mutex tmp;
-        tmp.lock();
-        std::mutex* prev = &tmp;
+        /// previous node's lock
+        Lock prev(tmp);
         /// depth in the tree (indicate cube size)
         std::size_t depth = 0;
 
@@ -203,12 +254,10 @@ public:
         while (true)
         {
             // lock current node
-            // TODO-LOCK: std::scoped_lock cur(*n.m.get());
-            n.m->lock();
+            Lock cur(n.m.get());
 
             // release previous node
-            // TODO-LOCK: find a way to release the mutex (smart ptr ?)
-            prev->unlock();
+            prev.release();
 
             // FIXME: need to descend to check if point isn't set somewhere
             // a solution could be perform a detection as soon as we find a
@@ -223,7 +272,6 @@ public:
                 if (e == n.elems[N - pos])
                 {
                     // value exists, aborting
-                    n.m->unlock();
                     return;
                 }
             }
@@ -246,13 +294,10 @@ public:
                 }
 
                 // value inserted or already exists
-                n.m->unlock();
                 return;
             }
 
-            // find how to transfer a mutex from a scoped_lock to another
-            // TODO-LOCK: prev = cur;
-            prev = n.m.get();
+            prev = cur;
 
             depth++;
 
@@ -269,11 +314,9 @@ public:
 
     void erase(const T e) noexcept final
     {
-        /// previous node's lock
-        // std::scoped_lock prev;
         std::mutex tmp;
-        tmp.lock();
-        std::mutex* prev = &tmp;
+        /// previous node's lock
+        Lock prev(tmp);
 
         /// current node
         auto& n = root_;
@@ -281,12 +324,9 @@ public:
         while (true)
         {
             // lock current node
-            // TODO-LOCK: std::scoped_lock cur(*n.m.get());
-            n.m->lock();
+            Lock cur(n.m.get());
 
-            // release previous node
-            // TODO-LOCK: find a way to release the mutex (smart ptr ?)
-            prev->unlock();
+            prev.release();
 
             int i;
             auto used = (~n.free).to_ullong();
@@ -300,7 +340,6 @@ public:
                     n.free[pos - 1] = true;
 
                     // value deleted
-                    n.m->unlock();
                     return;
                 }
             }
@@ -308,18 +347,12 @@ public:
             // find next node
             auto dir = get_dir(e, n.center);
 
-            // find how to transfer a mutex from a scoped_lock to another
-            // TODO-LOCK: prev = cur;
-            prev = n.m.get();
+            prev = cur;
 
             const auto pt = n.nodes[dir].get();
             // no point in the targeted corner, aborting
             if (pt == nullptr)
-            {
-                // TODO-LOCK: delete this
-                prev->unlock();
                 return;
-            }
 
             n = *pt;
         }
@@ -331,14 +364,13 @@ private:
     bool descend(struct node<T, N>* node, T e)
     {
         std::mutex tmp;
-        tmp.lock();
-        std::mutex* prev = &tmp;
+        Lock prev(tmp);
 
         while (node != nullptr)
         {
             const auto n = *node;
-            n.m->lock();
-            prev->unlock();
+            Lock cur(n.m.get());
+            prev.release();
 
             int i;
             auto used = (~n.free).to_ullong();
@@ -348,20 +380,16 @@ private:
                 i = ffsll(used);
                 pos += i;
                 if (e == n.elems[N - pos])
-                {
-                    n.m->unlock();
                     return false;
-                }
             }
 
-            prev = n.m.get();
+            prev = cur;
 
             // find next node
             auto dir = get_dir(e, n.center);
             node = n.nodes[dir].get();
         }
 
-        prev->unlock();
         return true;
     }
 

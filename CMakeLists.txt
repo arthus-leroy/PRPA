@@ -26,7 +26,7 @@ find_package(GTest)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_FLAGS "-g3 -W -Wall")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=thread")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG")
 
 include_directories(lib/include)
 

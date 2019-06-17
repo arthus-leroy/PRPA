@@ -12,13 +12,19 @@
 
 /** TODO:
  *  ask how max number of elements (for possiblity of array based implem)
- *  ask max size of cube (for size of sub-cubes, since a sub-cube)
- *  verify if fairness is ensured
- *  add center for (almost) every node declaration
+ *  verify if fairness is ensured (priority queue seems better option)
+ *  use rw locks for readers (performance ++)
+ *      -> queuing_rw_mutex of tbb/queuing_rw_mutex.h
+ *  unlock after exception (/!\ important to avoid deadlock /!\)
+ *      -> scoped_lock ?
+ *      -> all lock() and unlock() must disappear
  */
 
 namespace
 {
+    static constexpr int16_t side_size = INT16_MAX;
+
+    /// Get distance between two points
     inline long distance(const point a, const point b)
     {
         const long x = a.x - b.x;
@@ -28,12 +34,43 @@ namespace
         return x*x + y*y + z*z;
     }
 
-    /// return index of direction corresponding to corrdinates in a cube
-    inline int get_dir(const point a, const point b)
+    /// Return index of direction corresponding to corrdinates in a cube
+    inline unsigned get_dir(const point a, const point b)
     {
         return 4 * ((a.z - b.z) >= 0)
              + 2 * ((a.y - b.y) >= 0)
              + 1 * ((a.x - b.x) >= 0);
+    }
+
+    // TODO: complete the function
+    /// Get nearest point to point p in the cube centered on center
+    inline std::size_t get_nearest(const point center, const point p,
+                                   const std::size_t depth)
+    {
+        return 0;
+    }
+
+    /// Get the scalar of a
+    inline long direction(const long a)
+    {
+        if (a > 0)
+            return 1;
+        else if (a < 0)
+            return -1;
+
+        return 0;
+    }
+
+    /// Get center of the cube the point p is in
+    inline struct point get_center(const point center, const point p,
+                                   const std::size_t depth)
+    {
+        return
+        {
+            center.x + direction(p.x - center.x) * side_size / depth / 2,
+            center.y + direction(p.y - center.y) * side_size / depth / 2,
+            center.z + direction(p.z - center.z) * side_size / depth / 2
+        };
     }
 }
 
@@ -59,7 +96,9 @@ struct node
      *  the same happend to nodes, but far fewer
      */
     inline node(struct point center_point = {0, 0, 0})
-        : m(std::make_shared<std::mutex>()), free(-1ULL), center(center_point)
+        : m(std::make_shared<std::mutex>())
+        , free(-1ULL)
+        , center(center_point)
     {
         assert(N > 0);
     }
@@ -98,10 +137,10 @@ public:
         /// functor to sort the weighted queue
         static const auto f = [&](const T& p) { return distance(p, e); };
 
-        // placeholder to avoid undefined behaviors
+        /// previous node's lock
+        // TODO-LOCK: std::scoped_lock prev;
         std::mutex tmp;
         tmp.lock();
-        /// previous node's lock
         std::mutex* prev = &tmp;
         /// nearest elements found
         WeightedQueue<T, K> nearest;
@@ -109,6 +148,8 @@ public:
         std::queue<const struct node<T, N>*> nodes;
         /// current node
         struct node<T, N> n;
+        // depth in the tree (indicate cube size)
+        std::size_t depth = 0;
 
         // current node
         nodes.push(&root_);
@@ -119,32 +160,42 @@ public:
             nodes.pop();
 
             // lock current node
-            n.m->lock();
+            // TODO-LOCK: std::scoped_lock cur(*n.m.get());
+            n.m.get()->lock();
+
             // release previous node
+            // TODO-LOCK: find a way to release the mutex (smart ptr ?)
             prev->unlock();
 
             for (const auto elem : n.elems)
                 nearest.push(elem, f);
 
+            depth++;
+
+            // find how to transfer a mutex from a scoped_lock to another
+            // TODO-LOCK: prev = cur;
             prev = n.m.get();
             for (const auto node : n.nodes)
-            // TODO: insert a test to eliminate nodes outside of rande (> distance)
-                if (node.get() != nullptr)
+                // node exists and isn't too far away
+                if (node.get() != nullptr
+                    && get_nearest(node.get()->center, e, depth)
+                     < nearest.back().weight)
                     nodes.push(node.get());
         }
 
-        n.m->unlock();
-
+        prev->unlock();
         return nearest.get();
     }
 
     void insert(const T e) noexcept final
     {
-        // placeholder to avoid undefined behaviors
+        /// previous node's lock
+        // std::scoped_lock prev;
         std::mutex tmp;
         tmp.lock();
-        /// previous node's lock
         std::mutex* prev = &tmp;
+        /// depth in the tree (indicate cube size)
+        std::size_t depth = 0;
 
         /// current node
         auto& n = root_;
@@ -152,34 +203,63 @@ public:
         while (true)
         {
             // lock current node
+            // TODO-LOCK: std::scoped_lock cur(*n.m.get());
             n.m->lock();
+
             // release previous node
+            // TODO-LOCK: find a way to release the mutex (smart ptr ?)
             prev->unlock();
 
             // FIXME: need to descend to check if point isn't set somewhere
-
-            // free slot(s)
-            if (n.free.any())
+            // a solution could be perform a detection as soon as we find a
+            // free spot, but could cause dupes being generated
+            int i;
+            auto used = (~n.free).to_ullong();
+            for (int pos = -1; used; used >>= i)
             {
-                // ffsll span from 1 to N
                 // ffsll return least significant bit, N - i is most significant
-                const int i = ffsll(n.free.to_ullong());
-                n.elems[N - i] = e;
-                n.free[i - 1] = false;
-
-                // value inserted
-                n.m->unlock();
-                return;
+                i = ffsll(used);
+                pos += i;
+                if (e == n.elems[N - pos])
+                {
+                    // value exists, aborting
+                    n.m->unlock();
+                    return;
+                }
             }
 
             // find next node
             auto dir = get_dir(e, n.center);
+            auto pt = n.nodes[dir].get();
+
+            // free slot(s)
+            if (n.free.any())
+            {
+                // value isn't in the tree, inserting
+                if (descend(pt, e))
+                {
+                    // ffsll span from 1 to N
+                    // ffsll return least significant bit, N - i is most significant
+                    const int i = ffsll(n.free.to_ullong());
+                    n.elems[N - i] = e;
+                    n.free[i - 1] = false;
+                }
+
+                // value inserted or already exists
+                n.m->unlock();
+                return;
+            }
+
+            // find how to transfer a mutex from a scoped_lock to another
+            // TODO-LOCK: prev = cur;
             prev = n.m.get();
 
-            auto pt = n.nodes[dir].get();
+            depth++;
+
             if (pt == nullptr)
             {
-                n.nodes[dir] = std::make_shared<node<T, N>>();
+                const auto center = get_center(n.center, e, depth);
+                n.nodes[dir] = std::make_shared<node<T, N>>(center);
                 pt = n.nodes[dir].get();
             }
 
@@ -189,10 +269,10 @@ public:
 
     void erase(const T e) noexcept final
     {
-        // placeholder to avoid undefined behaviors
+        /// previous node's lock
+        // std::scoped_lock prev;
         std::mutex tmp;
         tmp.lock();
-        /// previous node's lock
         std::mutex* prev = &tmp;
 
         /// current node
@@ -201,8 +281,11 @@ public:
         while (true)
         {
             // lock current node
+            // TODO-LOCK: std::scoped_lock cur(*n.m.get());
             n.m->lock();
+
             // release previous node
+            // TODO-LOCK: find a way to release the mutex (smart ptr ?)
             prev->unlock();
 
             int i;
@@ -224,12 +307,16 @@ public:
 
             // find next node
             auto dir = get_dir(e, n.center);
+
+            // find how to transfer a mutex from a scoped_lock to another
+            // TODO-LOCK: prev = cur;
             prev = n.m.get();
 
             const auto pt = n.nodes[dir].get();
             // no point in the targeted corner, aborting
             if (pt == nullptr)
             {
+                // TODO-LOCK: delete this
                 prev->unlock();
                 return;
             }
@@ -239,5 +326,44 @@ public:
     }
 
 private:
+    // TODO-LOCK: here too
+    /// Descend to see if the value e don't exists in the nodes down
+    bool descend(struct node<T, N>* node, T e)
+    {
+        std::mutex tmp;
+        tmp.lock();
+        std::mutex* prev = &tmp;
+
+        while (node != nullptr)
+        {
+            const auto n = *node;
+            n.m->lock();
+            prev->unlock();
+
+            int i;
+            auto used = (~n.free).to_ullong();
+            for (int pos = -1; used; used >>= i)
+            {
+                // ffsll return least significant bit, N - i is most significant
+                i = ffsll(used);
+                pos += i;
+                if (e == n.elems[N - pos])
+                {
+                    n.m->unlock();
+                    return false;
+                }
+            }
+
+            prev = n.m.get();
+
+            // find next node
+            auto dir = get_dir(e, n.center);
+            node = n.nodes[dir].get();
+        }
+
+        prev->unlock();
+        return true;
+    }
+
     struct node<T, N> root_;
 };

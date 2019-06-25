@@ -4,8 +4,7 @@
 #include "tools.hpp"
 #include "naive_quadtree.hpp"
 #include "naive_async_quadtree.hpp"
-# include "optimized_octree.hpp"
-# include "optimized_async_octree.hpp"
+# include "octree.hpp"
 
 using namespace std::string_literals;
 
@@ -21,7 +20,7 @@ using namespace std::string_literals;
                                                                               \
         Scenario scn(n, nqueries);                                            \
                                                                               \
-        OptimizedOcTree<point, N> dic;                                        \
+        SyncOctree<N> dic;                                                    \
         scn.prepare(dic);                                                     \
         scn.execute_verbose(dic);                                             \
     }
@@ -39,8 +38,8 @@ SYNC(5)
         std::size_t nqueries = 64; /* 512 */                                  \
         Scenario scn(n, nqueries);                                            \
                                                                               \
-        OptimizedOcTree<point, N> dic;                                        \
-        AsyncOptimizedOcTree<point, N> async_dic;                             \
+        SyncOctree<N> dic;                                                    \
+        AsyncOctree<N> async_dic;                                             \
         scn.prepare(dic);                                                     \
         scn.prepare(async_dic);                                               \
         auto r1 = scn.execute(async_dic);                                     \
@@ -48,7 +47,6 @@ SYNC(5)
         ASSERT_EQ(r1, r2);                                                    \
     }
 
-// FIXME: tests for async fail, fix it
 ASYNC(1)
 ASYNC(2)
 ASYNC(3)

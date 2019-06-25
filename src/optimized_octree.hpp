@@ -6,6 +6,7 @@
 # include <cassert>
 # include <strings.h>
 # include <queue>
+# include <iostream>
 
 # include "IAsyncQuadTree.hpp"
 # include "weighted_queue.hpp"
@@ -40,6 +41,8 @@ namespace
     }
 
     // TODO: complete the function
+    // FIXME: this function should greatly enhance the performances of the
+    //        program. Without it, it performs at around 3 search per second.
     /// Get nearest point to point p in the cube centered on center
     inline std::size_t get_nearest(const point center, const point p,
                                    const std::size_t depth)
@@ -147,32 +150,61 @@ private:
 template <typename T, unsigned N>
 struct node
 {
-    // TODO: investigate on the invalid read
-    /**
-     *  m of every node should exist as long a root_ exist, but each
-     *  operator= of node produce an invalid read of mutex pretending mutex
-     *  have been freed
-     *  the same happend to nodes, but far fewer
-     */
-    inline node(struct point center_point = {0, 0, 0})
-        : m(std::make_shared<std::mutex>())
+    node(struct point center_point = {0, 0, 0})
+        : m(new std::mutex)
         , free(-1ULL)
         , center(center_point)
+
+    {}
+
+    ~node()
     {
-        assert(N > 0);
+        delete m;
+        for (unsigned i = 0; i < 8; i++)
+            delete nodes[i];
     }
 
     /// mutex to block the node if busy
-    std::shared_ptr<std::mutex> m;
+    mutable std::mutex* m;
     // TODO: test the trade-off 16x16x16, 8x8x8 or 4x4x4 compared to 2x2x2
-    /// pointers to the 8 corners of the octotree
-    std::array<std::shared_ptr<struct node>, 8> nodes;
+    /// pointers to the 8 corners of the octree
+    std::array<struct node*, 8> nodes{};
     /// elements contained in the leaf
     std::array<T, N> elems;
     /// map of slots used in the node (1 = used)
     std::bitset<N> free;
     /// coordinate of the center of the sub-octree
-    struct point center;
+    const struct point center;
+};
+
+template <typename T>
+struct node<T, 1>
+{
+    node(struct point center_point = {0, 0, 0})
+        : m(new std::mutex)
+        , free(true)
+        , center(center_point)
+
+    {}
+
+    ~node()
+    {
+        delete m;
+        for (unsigned i = 0; i < 8; i++)
+            delete nodes[i];
+    }
+
+    /// mutex to block the node if busy
+    mutable std::mutex* m;
+    // TODO: test the trade-off 16x16x16, 8x8x8 or 4x4x4 compared to 2x2x2
+    /// pointers to the 8 corners of the octree
+    std::array<struct node*, 8> nodes{};
+    /// element contained in the leaf
+    T elem;
+    /// boolean indicating whether or not, the node is used
+    bool free;
+    /// coordinate of the center of the sub-octree
+    const struct point center;
 };
 
 template <typename T, unsigned N>
@@ -203,27 +235,42 @@ public:
         WeightedQueue<T, K> nearest;
         /// queue of nodes for breadth-first search
         std::queue<const struct node<T, N>*> nodes;
-        /// current node
-        struct node<T, N> n;
         // depth in the tree (indicate cube size)
         std::size_t depth = 0;
 
         // current node
         nodes.push(&root_);
 
+//        std::cout << "Searching " << e << std::endl;
+
         while (!nodes.empty())
         {
-            n = *nodes.front();
+            const auto& n = *nodes.front();
             nodes.pop();
 
             // lock current node
-            Lock cur(n.m.get());
-
-            // release previous node (warning assert on first try)
+            Lock cur(n.m);
+            // release previous lock
             prev.release();
 
-            for (const auto elem : n.elems)
-                nearest.push(elem, f);
+            // if there is a point, add it
+            if constexpr(N == 1)
+            {
+                if (n.free == false)
+                    nearest.push(n.elem, f);
+            }
+            else
+            {
+                int i;
+                auto used = (~n.free).to_ulong();
+                for (int pos = -1; used; used >>= i)
+                {
+                    // ffsll return least significant bit, N - i is most significant
+                    i = ffsl(used);
+                    pos += i;
+                    nearest.push(n.elems[N - pos], f);
+                }
+            }
 
             depth++;
 
@@ -231,10 +278,10 @@ public:
 
             for (const auto node : n.nodes)
                 // node exists and isn't too far away
-                if (node.get() != nullptr
-                    && get_nearest(node.get()->center, e, depth)
+                if (node != nullptr
+                    && get_nearest(node->center, e, depth)
                      < nearest.back().weight)
-                    nodes.push(node.get());
+                    nodes.push(node);
         }
 
         return nearest.get();
@@ -248,53 +295,78 @@ public:
         /// depth in the tree (indicate cube size)
         std::size_t depth = 0;
 
-        /// current node
-        auto& n = root_;
+        /// current node's pointer
+        auto* pt = &root_;
+
+//        std::cout << "Inserting " << e << std::endl;
 
         while (true)
         {
-            // lock current node
-            Lock cur(n.m.get());
+            auto& n = *pt;
 
+            // lock current node
+            Lock cur(n.m);
             // release previous node
             prev.release();
 
-            // FIXME: need to descend to check if point isn't set somewhere
-            // a solution could be perform a detection as soon as we find a
-            // free spot, but could cause dupes being generated
-            int i;
-            auto used = (~n.free).to_ullong();
-            for (int pos = -1; used; used >>= i)
+            if constexpr(N == 1)
             {
-                // ffsll return least significant bit, N - i is most significant
-                i = ffsll(used);
-                pos += i;
-                if (e == n.elems[N - pos])
-                {
+                if (n.free == false && e == n.elem)
                     // value exists, aborting
                     return;
+            }
+            else
+            {
+                int i;
+                auto used = (~n.free).to_ulong();
+                for (int pos = -1; used; used >>= i)
+                {
+                    // ffsll return least significant bit, N - i is most significant
+                    i = ffsl(used);
+                    pos += i;
+                    if (e == n.elems[N - pos])
+                        // value exists, aborting
+                        return;
                 }
             }
 
             // find next node
             auto dir = get_dir(e, n.center);
-            auto pt = n.nodes[dir].get();
+            pt = n.nodes[dir];
 
             // free slot(s)
-            if (n.free.any())
+            if constexpr(N == 1)
             {
-                // value isn't in the tree, inserting
-                if (descend(pt, e))
+                if (n.free)
                 {
-                    // ffsll span from 1 to N
-                    // ffsll return least significant bit, N - i is most significant
-                    const int i = ffsll(n.free.to_ullong());
-                    n.elems[N - i] = e;
-                    n.free[i - 1] = false;
-                }
+                    // value isn't in the tree, inserting
+                    if (descend(pt, e))
+                    {
+                        n.elem = e;
+                        n.free = false;
+                    }
 
-                // value inserted or already exists
-                return;
+                    // value inserted or already exists
+                    return;
+                }
+            }
+            else
+            {
+                if (n.free.any())
+                {
+                    // value isn't in the tree, inserting
+                    if (descend(pt, e))
+                    {
+                        // ffsll span from 1 to N
+                        // ffsll return least significant bit, N - i is most significant
+                        const int i = ffsl(n.free.to_ulong());
+                        n.elems[N - i] = e;
+                        n.free[i - 1] = false;
+                    }
+
+                    // value inserted or already exists
+                    return;
+                }
             }
 
             prev = cur;
@@ -304,11 +376,9 @@ public:
             if (pt == nullptr)
             {
                 const auto center = get_center(n.center, e, depth);
-                n.nodes[dir] = std::make_shared<node<T, N>>(center);
-                pt = n.nodes[dir].get();
+                n.nodes[dir] = new struct node<T, N>(center);
+                pt = n.nodes[dir];
             }
-
-            n = *pt;
         }
     }
 
@@ -318,80 +388,99 @@ public:
         /// previous node's lock
         Lock prev(tmp);
 
-        /// current node
-        auto& n = root_;
+        /// current node's pointer
+        auto* pt = &root_;
 
-        while (true)
+//        std::cout << "Erasing " << e << std::endl;
+
+        // pt == nullptr => no point in the targeted corner
+        while (pt)
         {
+            auto& n = *pt;
+
             // lock current node
-            Lock cur(n.m.get());
+            Lock cur(n.m);
 
             prev.release();
 
-            int i;
-            auto used = (~n.free).to_ullong();
-            for (int pos = -1; used; used >>= i)
+            if constexpr(N == 1)
             {
-                // ffsll return least significant bit, N - i is most significant
-                i = ffsll(used);
-                pos += i;
-                if (e == n.elems[N - pos])
+                if (n.free == false && e == n.elem)
                 {
-                    n.free[pos - 1] = true;
+                    n.free = true;
 
                     // value deleted
                     return;
                 }
             }
-
-            // find next node
-            auto dir = get_dir(e, n.center);
-
-            prev = cur;
-
-            const auto pt = n.nodes[dir].get();
-            // no point in the targeted corner, aborting
-            if (pt == nullptr)
-                return;
-
-            n = *pt;
-        }
-    }
-
-private:
-    // TODO-LOCK: here too
-    /// Descend to see if the value e don't exists in the nodes down
-    bool descend(struct node<T, N>* node, T e)
-    {
-        std::mutex tmp;
-        Lock prev(tmp);
-
-        while (node != nullptr)
-        {
-            const auto n = *node;
-            Lock cur(n.m.get());
-            prev.release();
-
-            int i;
-            auto used = (~n.free).to_ullong();
-            for (int pos = -1; used; used >>= i)
+            else
             {
-                // ffsll return least significant bit, N - i is most significant
-                i = ffsll(used);
-                pos += i;
-                if (e == n.elems[N - pos])
-                    return false;
+                int i;
+                auto used = (~n.free).to_ulong();
+                for (int pos = -1; used; used >>= i)
+                {
+                    // ffsll return least significant bit, N - i is most significant
+                    i = ffsl(used);
+                    pos += i;
+                    if (e == n.elems[N - pos])
+                    {
+                        n.free[pos - 1] = true;
+
+                        // value deleted
+                        return;
+                    }
+                }
             }
 
             prev = cur;
 
             // find next node
             auto dir = get_dir(e, n.center);
-            node = n.nodes[dir].get();
+            pt = n.nodes[dir];
+        }
+    }
+
+private:
+    /// Descend to see if the value e don't exists in the nodes down
+    bool descend(struct node<T, N>* node, const T e)
+    {
+        std::mutex tmp;
+        Lock prev(tmp);
+
+        while (node)
+        {
+            const auto &n = *node;
+            Lock cur(n.m);
+            prev.release();
+
+            if constexpr(N == 1)
+            {
+                if (n.free == false && e == n.elem)
+                    return false;
+            }
+            else
+            {
+                int i;
+                auto used = (~n.free).to_ulong();
+                for (int pos = -1; used; used >>= i)
+                {
+                    // ffsll return least significant bit, N - i is most significant
+                    i = ffsl(used);
+                    pos += i;
+                    if (e == n.elems[N - pos])
+                        return false;
+                }
+            }
+
+            prev = cur;
+
+            // find next node
+            auto dir = get_dir(e, n.center);
+            node = n.nodes[dir];
         }
 
         return true;
     }
 
-    struct node<T, N> root_;
+    struct node<T, N> root_{};
 };

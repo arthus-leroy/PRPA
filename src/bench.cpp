@@ -2,8 +2,7 @@
 #include "tools.hpp"
 #include "naive_quadtree.hpp"
 #include "naive_async_quadtree.hpp"
-# include "optimized_octree.hpp"
-# include "optimized_async_octree.hpp"
+# include "octree.hpp"
 
 #include <benchmark/benchmark.h>
 
@@ -30,7 +29,7 @@ std::unique_ptr<Scenario> BMScenario::m_scenario;
 # define SYNC(N)                                                              \
     BENCHMARK_DEFINE_F(BMScenario, OcTree_Opti_V1_ ## N)(benchmark::State& st)\
     {                                                                         \
-        OptimizedOcTree<point, N> dic;                                        \
+        SyncOctree<N> dic;                                                    \
         m_scenario->prepare(dic);                                             \
                                                                               \
         for (auto _ : st)                                                     \
@@ -65,7 +64,7 @@ SYNC(20)
 # define ASYNC(N)                                                             \
     BENCHMARK_DEFINE_F(BMScenario, Async_OcTree_Opti_V1_ ## N)(benchmark::State& st)\
     {                                                                         \
-        AsyncOptimizedOcTree<point, N> dic;                                   \
+        AsyncOctree<N> dic;                                                   \
         m_scenario->prepare(dic);                                             \
                                                                               \
         for (auto _ : st)                                                     \
